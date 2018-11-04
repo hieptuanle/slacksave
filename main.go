@@ -17,8 +17,11 @@ import (
 
 var accessToken = os.Getenv("SLACK_BOT_USER_ACCESS_TOKEN")
 var verificationToken = os.Getenv("SLACK_BOT_VERIFICATION_TOKEN")
+var userToken = os.Getenv("SLACK_USER_LEGACY_ACCESS_TOKEN")
 
 var api = slack.New(accessToken)
+
+var userAPI = slack.New(userToken)
 
 func stringToTime(s string) (time.Time, error) {
 	sec, err := strconv.ParseFloat(s, 64)
@@ -28,7 +31,50 @@ func stringToTime(s string) (time.Time, error) {
 	return time.Unix(int64(sec), 0), nil
 }
 
+func getAllConversations(client *slack.Client, cursor string) (channels []slack.Channel, nextCursor string, err error) {
+	return client.GetConversations(&slack.GetConversationsParameters{Limit: 20, Types: []string{"public_channel", "private_channel", "im", "mpim"}, Cursor: cursor})
+}
+
 func main() {
+
+	userMap := make(map[string]slack.User)
+	// var userMap map[string]slack.User = make
+
+	users, err := api.GetUsers()
+	if err != nil {
+		fmt.Printf("%s\n", err)
+		return
+	}
+	for _, user := range users {
+		userMap[user.ID] = user
+		fmt.Printf("ID: %s, Name: %s\n", user.ID, user.Name)
+	}
+
+	for groups, nextCursor, err := getAllConversations(userAPI, ""); len(groups) > 0; {
+		if err != nil {
+			fmt.Printf("%s\n", err)
+			return
+		}
+		fmt.Printf("Cursor %s\n", nextCursor)
+
+		for _, group := range groups {
+			if group.IsIM {
+				if member, ok := userMap[group.User]; ok {
+					fmt.Printf("Direct Group: %s\n", member.Name)
+				}
+
+			} else {
+				fmt.Printf("Group Name: %s, Name: %s\n", group.ID, group.Name)
+			}
+		}
+
+		if nextCursor != "" {
+			groups, nextCursor, err = getAllConversations(userAPI, nextCursor)
+		} else {
+			groups = []slack.Channel{}
+		}
+	}
+
 	fmt.Println(accessToken)
 	fmt.Println(verificationToken)
 	http.HandleFunc("/events-endpoint", func(w http.ResponseWriter, r *http.Request) {
